@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python ADK Background Task Engine</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="glow-bg"></div>
+    
+    <!-- Main Dashboard Container -->
+    <div class="dashboard-container">
+        <!-- Top Navigation Bar -->
+        <header class="navbar">
+            <div class="brand">
+                <i class="fa-solid fa-microchip-ai logo-icon"></i>
+                <div class="brand-text">
+                    <h1>ADK Task Engine</h1>
+                    <span>Asynchronous Agent Orchestrator</span>
+                </div>
+            </div>
+            
+            <!-- Live System Telemetry -->
+            <div class="telemetry-bar">
+                <div class="telemetry-item" id="fps-card">
+                    <span class="label">UI FPS</span>
+                    <span class="value success" id="ui-fps">60</span>
+                    <div class="fps-dot pulse"></div>
+                </div>
+                <div class="telemetry-item">
+                    <span class="label">Active Workers</span>
+                    <span class="value" id="sys-active-workers">0</span>
+                </div>
+                <div class="telemetry-item">
+                    <span class="label">Backend CPU</span>
+                    <span class="value" id="sys-cpu">0%</span>
+                </div>
+                <div class="telemetry-item">
+                    <span class="label">Memory</span>
+                    <span class="value" id="sys-memory">0%</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Split Workspace Layout -->
+        <main class="workspace">
+            <!-- Left Side: Main Thread Agent Interaction -->
+            <section class="pane left-pane" id="chat-section">
+                <div class="pane-header">
+                    <div class="title-group">
+                        <i class="fa-solid fa-comments"></i>
+                        <h2>Main Thread Coordinator</h2>
+                    </div>
+                    <span class="badge active-badge">UI responsive</span>
+                </div>
+                
+                <!-- Interactive canvas to prove 60fps main thread fluidity -->
+                <div class="canvas-container">
+                    <canvas id="fps-canvas" title="Hover to interact. Smooth movement proves the main thread UI is responsive."></canvas>
+                    <div class="canvas-hint">Main thread visualizer (Interact with mouse to test responsiveness)</div>
+                </div>
+
+                <div class="chat-history" id="chat-history">
+                    <!-- Dynamic chat messages go here -->
+                </div>
+                
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Ask agent to 'research AI trends' or 'crunch primes'..." autocomplete="off">
+                    <button id="send-chat-btn">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Side: Background Task Manager -->
+            <section class="pane right-pane" id="engine-section">
+                <div class="pane-header">
+                    <div class="title-group">
+                        <i class="fa-solid fa-server"></i>
+                        <h2>Background Task Manager</h2>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="clear-tasks-btn">
+                        <i class="fa-solid fa-trash-can"></i> Clear Completed
+                    </button>
+                </div>
+
+                <!-- Task Spawning Wizard -->
+                <div class="task-wizard glass-panel">
+                    <h3><i class="fa-solid fa-square-plus"></i> Spawn Task Agent</h3>
+                    <form id="spawn-task-form" class="wizard-form">
+                        <div class="form-group">
+                            <label for="agent-type">Agent Profile</label>
+                            <select id="agent-type" required>
+                                <option value="Researcher" selected>Researcher Agent (Simulated multi-step tools)</option>
+                                <option value="Coder">Coder Agent (Interactive Human-in-the-Loop test fix)</option>
+                                <option value="DataCruncher">Data Cruncher (Heavy mathematical async computing)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-prompt">Prompt / Goal</label>
+                            <input type="text" id="task-prompt" placeholder="Describe the task instructions..." required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-play"></i> Launch Async Agent
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active Tasks Dashboard -->
+                <div class="tasks-dashboard">
+                    <h3><i class="fa-solid fa-tasks"></i> Active Workflows</h3>
+                    <div class="tasks-list" id="tasks-list">
+                        <!-- Dynamic task cards rendering here -->
+                        <div class="no-tasks-state">
+                            <i class="fa-solid fa-layer-group"></i>
+                            <p>No active background tasks running.</p>
+                            <span>Use the panel above or ask the chat coordinator to spawn background agents.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Script File -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
