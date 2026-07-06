@@ -1,25 +1,115 @@
 import asyncio
 import os
 import psutil
+import uuid
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+from google.adk.agents import Agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
 
 from engine import AsyncTaskEngine
 from agent_workflow import run_agent_task
+
+load_dotenv()
 
 app = FastAPI(title="Python ADK Background Task Engine")
 
 # Instantiate our task engine
 engine = AsyncTaskEngine()
+CHAT_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 
 # Ensure the static directories exist
 os.makedirs("static", exist_ok=True)
 
 # Mount static folder
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def tool_create_background_task(agent_name: str, prompt: str) -> Dict[str, Any]:
+    if agent_name not in ["Researcher", "Coder", "DataCruncher"]:
+        return {
+            "ok": False,
+            "error": "Invalid agent_name. Choose Researcher, Coder, or DataCruncher.",
+        }
+
+    task = engine.create_task(agent_name, prompt)
+    started = engine.start_task(task.task_id, run_agent_task(task))
+    return {
+        "ok": started,
+        "task_id": task.task_id,
+        "agent_name": task.agent_name,
+        "status": task.status,
+        "prompt": task.prompt,
+    }
+
+
+def tool_list_tasks(limit: int = 20) -> Dict[str, Any]:
+    all_tasks = engine.get_all_tasks_metadata()
+    return {
+        "count": len(all_tasks),
+        "tasks": all_tasks[-max(1, limit):],
+    }
+
+
+def tool_get_task(task_id: str) -> Dict[str, Any]:
+    task = engine.get_task(task_id)
+    if not task:
+        return {"ok": False, "error": "Task not found", "task_id": task_id}
+
+    details = task.to_dict()
+    details["latest_logs"] = task.logs[-20:]
+    return {"ok": True, "task": details}
+
+
+def tool_pause_task(task_id: str) -> Dict[str, Any]:
+    success = engine.pause_task(task_id)
+    return {
+        "ok": success,
+        "task_id": task_id,
+        "message": "Task paused" if success else "Could not pause task",
+    }
+
+
+def tool_resume_task(task_id: str) -> Dict[str, Any]:
+    success = engine.resume_task(task_id)
+    return {
+        "ok": success,
+        "task_id": task_id,
+        "message": "Task resumed" if success else "Could not resume task",
+    }
+
+
+coordinator_agent = Agent(
+    name="coordinator_chat_agent",
+    model=CHAT_MODEL,
+    instruction=(
+        "You are the main-thread coordinator chat agent for a background task engine. "
+        "Use tools to create, inspect, pause, and resume tasks when requested. "
+        "Ask concise clarification questions if required parameters are missing. "
+        "When reporting task actions, include task_id and current status."
+    ),
+    tools=[
+        tool_create_background_task,
+        tool_list_tasks,
+        tool_get_task,
+        tool_pause_task,
+        tool_resume_task,
+    ],
+)
+
+coordinator_sessions = InMemorySessionService()
+coordinator_runner = Runner(
+    app_name="adk_async_background_engine_chat",
+    agent=coordinator_agent,
+    session_service=coordinator_sessions,
+)
 
 class CreateTaskRequest(BaseModel):
     agent_name: str
@@ -145,6 +235,14 @@ async def startup_event():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
+
+    user_id = f"ws-user-{uuid.uuid4().hex[:8]}"
+    session = coordinator_sessions.create_session(
+        app_name="adk_async_background_engine_chat",
+        user_id=user_id,
+    )
+    if asyncio.iscoroutine(session):
+        session = await session
     
     # Send welcome message
     await websocket.send_json({
@@ -158,64 +256,54 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             if data.get("type") == "chat":
                 user_msg = data.get("message", "")
-                await handle_chat_message(websocket, user_msg)
+                await handle_chat_message(websocket, user_msg, user_id, session.id)
     except WebSocketDisconnect:
         pass
     finally:
-        active_connections.remove(websocket)
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
-async def handle_chat_message(websocket: WebSocket, message: str):
+async def handle_chat_message(websocket: WebSocket, message: str, user_id: str, session_id: str):
     """
-    Core conversational agent logic running on the main thread.
-    Can interpret user requests and automatically trigger background execution.
+    ADK-backed conversational loop for websocket chat.
     """
-    msg_lower = message.lower()
-    
     # Send receipt confirmation immediately to show responsiveness
     await websocket.send_json({
         "type": "chat_ack",
         "message": "Received prompt, thinking..."
     })
-    await asyncio.sleep(0.3)
-    
-    if "research" in msg_lower or "search" in msg_lower:
-        # User wants to run a research task
-        prompt = message
-        task = engine.create_task("Researcher", prompt)
-        engine.start_task(task.task_id, run_agent_task(task))
-        
-        response = f"I've initiated a background **Researcher Agent** (Task ID: **{task.task_id}**) to look into: *\"{prompt}\"*. You can track its progress and logs in the dashboard pane on the right."
-        
-    elif "test" in msg_lower or "coder" in msg_lower or "refactor" in msg_lower:
-        # User wants to run coding/test agent
-        prompt = message
-        task = engine.create_task("Coder", prompt)
-        engine.start_task(task.task_id, run_agent_task(task))
-        
-        response = f"Launched **Coder Agent** (Task ID: **{task.task_id}**) to perform development workflows. It will run test suites and check back if it needs human input!"
-        
-    elif "math" in msg_lower or "crunch" in msg_lower or "prime" in msg_lower:
-        # User wants to run heavy math calculation
-        prompt = message
-        task = engine.create_task("DataCruncher", prompt)
-        engine.start_task(task.task_id, run_agent_task(task))
-        
-        response = f"Spawning a heavy-compute **Data Cruncher Agent** (Task ID: **{task.task_id}**) to run complex primality checks in the background. The main thread will remain fully responsive!"
-        
-    elif "help" in msg_lower:
-        response = ("You can command me to start background agents by typing prompts like:\n"
-                    "- *'research quantum computing trends'*\n"
-                    "- *'coder write code for the division calculator'*\n"
-                    "- *'crunch primes'*\n\n"
-                    "You can also use the control buttons on the right to manage running agents.")
-    else:
-        response = f"I am active and responding on the main thread! I can run tasks for you. Try asking me to 'research solar flares' or 'run prime math' to see the asynchronous background task engine in action."
 
-    await websocket.send_json({
-        "type": "chat",
-        "sender": "Coordinator",
-        "message": response
-    })
+    try:
+        new_message = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=message)],
+        )
+
+        response_parts: List[str] = []
+        async for event in coordinator_runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=new_message,
+        ):
+            parts = getattr(getattr(event, "content", None), "parts", None) or []
+            for part in parts:
+                text = getattr(part, "text", None)
+                if text:
+                    response_parts.append(text)
+
+        response = "\n".join([p.strip() for p in response_parts if p.strip()]).strip()
+        if not response:
+            response = "I processed your request, but I have no text response to display."
+    except Exception as error:
+        response = f"Coordinator chat agent failed: {error}"
+
+    await websocket.send_json(
+        {
+            "type": "chat",
+            "sender": "Coordinator",
+            "message": response,
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
